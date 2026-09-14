@@ -166,11 +166,15 @@ with tab_generate:
                 ["AI / Machine Learning", "LLMs / Generative AI", "Embedded Systems / IoT", "3D Printing & Rapid Prototyping", "Robotics", "Web / Mobile App", "Computer Vision", "AR / VR"],
                 default=["AI / Machine Learning", "Embedded Systems / IoT"]
             )
-            budget = st.select_slider(
-                "Budget Constraint",
-                options=["< $100 (Hobbyist)", "$100 - $500", "$500 - $2,000", "$2,000 - $10,000", "$10,000+ (Commercial Demo)"],
-                value="$100 - $500"
-            )
+            budget_limit = st.slider(
+            "Maximum Budget Limit (USD)",
+            min_value=50,
+            max_value=10000,
+            value=500,
+            step=50,
+            format="$%d USD",
+            help="Set the strict upper spending limit in US Dollars for prototype materials, tooling, and cloud compute."
+        )
 
         with col2:
             difficulty = st.select_slider(
@@ -194,11 +198,11 @@ with tab_generate:
         else:
             with st.spinner("Analyzing hardware bills of materials, month-by-month roadmaps, and market viability..."):
                 constraints = {
-                    "budget": budget,
-                    "tech": tech_options,
-                    "difficulty": difficulty,
-                    "timeline": timeline
-                }
+                "budget": f"Strict maximum cap of ${budget_limit:,} USD",
+                "tech": tech_options,
+                "difficulty": difficulty,
+                "timeline": timeline
+            }
                 try:
                     ideas = generate_ideas(user_prompt, constraints, num_ideas, provider, api_key)
                     st.session_state.ideas = sorted(ideas, key=lambda x: x.get("score", 0), reverse=True)
