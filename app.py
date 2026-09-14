@@ -1,20 +1,40 @@
 import streamlit as st
 import json
+import os
 
+SAVED_FILE = "saved_ideas.json"
+
+def load_persisted_ideas():
+    if os.path.exists(SAVED_FILE):
+        try:
+            with open(SAVED_FILE, "r") as f:
+                return json.load(f)
+        except Exception:
+            return []
+    return []
+
+def save_persisted_ideas(ideas_list):
+    try:
+        with open(SAVED_FILE, "w") as f:
+            json.dump(ideas_list, f, indent=2)
+    except Exception as e:
+        st.error(f"Failed to persist bookmarks: {e}")
+
+# Page Setup
 st.set_page_config(page_title="AI Ideation Studio", page_icon="💡", layout="wide")
 
-# Initialize session state for storage
+# Initialize session state
 if "ideas" not in st.session_state:
     st.session_state.ideas = None
 if "elaborations" not in st.session_state:
     st.session_state.elaborations = {}
 if "saved_ideas" not in st.session_state:
-    st.session_state.saved_ideas = []
+    st.session_state.saved_ideas = load_persisted_ideas()
 
 st.title("💡 AI-Powered Ideation & Evaluation Studio")
-st.markdown("Generate scored project concepts with market validation, granular hardware/cloud budgets, month-by-month roadmaps, and save your favorites.")
+st.markdown("Generate scored project concepts with market validation, granular hardware/cloud budgets, month-by-month roadmaps, and persistent bookmarks.")
 
-# --- Sidebar: Model & API Configuration + Bookmarks Manager ---
+# --- Sidebar: Model & API Configuration ---
 st.sidebar.header("⚙️ Model Configuration")
 provider = st.sidebar.selectbox(
     "Select AI Provider / Model",
@@ -49,7 +69,6 @@ if uploaded_file is not None:
     try:
         imported_ideas = json.load(uploaded_file)
         if isinstance(imported_ideas, list):
-            # Avoid duplicates by title
             current_titles = {i.get("title") for i in st.session_state.saved_ideas}
             added = 0
             for item in imported_ideas:
@@ -57,14 +76,16 @@ if uploaded_file is not None:
                     st.session_state.saved_ideas.append(item)
                     added += 1
             if added > 0:
+                save_persisted_ideas(st.session_state.saved_ideas)
                 st.sidebar.success(f"Imported {added} new project(s)!")
-    except Exception as e:
+    except Exception:
         st.sidebar.error("Invalid JSON file.")
 
 # Clear saved projects
 if st.session_state.saved_ideas:
     if st.sidebar.button("🗑️ Clear All Saved", use_container_width=True):
         st.session_state.saved_ideas = []
+        save_persisted_ideas([])
         st.rerun()
 
 # --- Helper: Unified API Dispatcher ---
@@ -129,7 +150,7 @@ def generate_ideas(prompt, constraints, num_ideas, provider, api_key):
         "- tech_stack (list of strings)\n"
         "- hardware_bom (list of objects with keys 'item', 'purpose', and 'est_cost') listing all physical components, sensors, microcontrollers, 3D printing filament, tooling, etc.\n"
         "- software_cloud_budget (string detailing cloud compute, API token usage, third-party software, and subscriptions)\n"
-        "- total_estimated_cost (string summarizing the total budget range from prototype to MVP)\n"
+        "- total_estimated_cost (string summarizing the total budget range from prototype to MVP in USD)\n"
         "- monthly_timeline (list of objects with keys 'month' and 'milestones', detailing a realistic month-by-month progression covering design, CAD/BOM, embedded firmware, API integration, bench testing, and field pilot/MVP)\n"
         "- pros (list of strings, minimum 3)\n"
         "- cons (list of strings, minimum 3)\n"
@@ -167,14 +188,14 @@ with tab_generate:
                 default=["AI / Machine Learning", "Embedded Systems / IoT"]
             )
             budget_limit = st.slider(
-            "Maximum Budget Limit (USD)",
-            min_value=50,
-            max_value=10000,
-            value=500,
-            step=50,
-            format="$%d USD",
-            help="Set the strict upper spending limit in US Dollars for prototype materials, tooling, and cloud compute."
-        )
+                "Maximum Budget Limit (USD)",
+                min_value=50,
+                max_value=10000,
+                value=500,
+                step=50,
+                format="$%d USD",
+                help="Set the strict upper spending limit in US Dollars for prototype materials, tooling, and cloud compute."
+            )
 
         with col2:
             difficulty = st.select_slider(
@@ -198,11 +219,11 @@ with tab_generate:
         else:
             with st.spinner("Analyzing hardware bills of materials, month-by-month roadmaps, and market viability..."):
                 constraints = {
-                "budget": f"Strict maximum cap of ${budget_limit:,} USD",
-                "tech": tech_options,
-                "difficulty": difficulty,
-                "timeline": timeline
-            }
+                    "budget": f"Strict maximum cap of ${budget_limit:,} USD",
+                    "tech": tech_options,
+                    "difficulty": difficulty,
+                    "timeline": timeline
+                }
                 try:
                     ideas = generate_ideas(user_prompt, constraints, num_ideas, provider, api_key)
                     st.session_state.ideas = sorted(ideas, key=lambda x: x.get("score", 0), reverse=True)
@@ -225,15 +246,16 @@ with tab_generate:
                     st.progress(score / 100)
                     st.caption(f"**Recommendation Analysis:** {idea.get('score_justification', 'Strong alignment with requirements.')}")
                 with top_cols[1]:
-                    # Save / Unsave button
                     is_saved = any(s.get("title") == idea.get("title") for s in st.session_state.saved_ideas)
                     if is_saved:
                         if st.button("⭐ Saved", key=f"save_btn_{idx}", use_container_width=True):
                             st.session_state.saved_ideas = [s for s in st.session_state.saved_ideas if s.get("title") != idea.get("title")]
+                            save_persisted_ideas(st.session_state.saved_ideas)
                             st.rerun()
                     else:
                         if st.button("🔖 Bookmark", key=f"save_btn_{idx}", use_container_width=True):
                             st.session_state.saved_ideas.append(idea)
+                            save_persisted_ideas(st.session_state.saved_ideas)
                             st.rerun()
 
                 st.markdown("### 📌 Executive Summary")
@@ -333,13 +355,13 @@ with tab_saved:
                 with col_del:
                     if st.button("❌ Remove from Bookmarks", key=f"del_saved_{s_idx}"):
                         st.session_state.saved_ideas.pop(s_idx - 1)
+                        save_persisted_ideas(st.session_state.saved_ideas)
                         st.rerun()
 
                 st.markdown(f"**Description:** {s_idea.get('description')}")
                 st.markdown(f"**Total Budget:** {s_idea.get('total_estimated_cost')}")
                 st.markdown(f"**Tech Stack:** {', '.join(s_idea.get('tech_stack', []))}")
                 
-                # Render Hardware BOM table if present
                 bom = s_idea.get("hardware_bom", [])
                 if bom:
                     st.markdown("**Hardware BOM:**")
