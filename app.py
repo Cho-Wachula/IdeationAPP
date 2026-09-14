@@ -209,3 +209,139 @@ with tab_generate:
 
     # --- Display Generated Ideas ---
     if st.session_state.ideas:
+        st.divider()
+        st.subheader(f"🏆 Top Ranked Concepts ({len(st.session_state.ideas)})")
+
+        for idx, idea in enumerate(st.session_state.ideas, 1):
+            score = int(idea.get("score", 75))
+            
+            with st.expander(f"#{idx} | {idea.get('title', 'Project Concept')} — Recommendation Score: {score}/100", expanded=True):
+                top_cols = st.columns([4, 1])
+                with top_cols[0]:
+                    st.progress(score / 100)
+                    st.caption(f"**Recommendation Analysis:** {idea.get('score_justification', 'Strong alignment with requirements.')}")
+                with top_cols[1]:
+                    # Save / Unsave button
+                    is_saved = any(s.get("title") == idea.get("title") for s in st.session_state.saved_ideas)
+                    if is_saved:
+                        if st.button("⭐ Saved", key=f"save_btn_{idx}", use_container_width=True):
+                            st.session_state.saved_ideas = [s for s in st.session_state.saved_ideas if s.get("title") != idea.get("title")]
+                            st.rerun()
+                    else:
+                        if st.button("🔖 Bookmark", key=f"save_btn_{idx}", use_container_width=True):
+                            st.session_state.saved_ideas.append(idea)
+                            st.rerun()
+
+                st.markdown("### 📌 Executive Summary")
+                st.write(idea.get("description"))
+
+                st.markdown("### ⚙️ System Architecture & Tech Stack")
+                st.write(idea.get("system_architecture", "Modular architecture integrating edge hardware and cloud software."))
+                tech_badges = " ".join([f"`{t}`" for t in idea.get("tech_stack", [])])
+                st.markdown(f"**Tech Stack:** {tech_badges}")
+
+                # --- Budget & BOM Breakdown ---
+                st.markdown("### 💰 Comprehensive Budget & Hardware BOM")
+                st.info(f"**Estimated Total Cost:** {idea.get('total_estimated_cost', 'N/A')}")
+                
+                hardware_items = idea.get("hardware_bom", [])
+                if hardware_items:
+                    st.markdown("#### 🛠️ Potential Hardware & Material Requirements (BOM)")
+                    bom_table = "| Item / Component | Purpose | Estimated Cost |\n|---|---|---|\n"
+                    for item in hardware_items:
+                        bom_table += f"| {item.get('item', 'N/A')} | {item.get('purpose', 'N/A')} | {item.get('est_cost', 'N/A')} |\n"
+                    st.markdown(bom_table)
+                
+                st.markdown(f"**Cloud, Tooling & Subscriptions:**\n\n{idea.get('software_cloud_budget', 'N/A')}")
+
+                # --- Timeline & Month-by-Month Progression ---
+                st.markdown("### 📅 Month-by-Month Execution Roadmap")
+                monthly_plan = idea.get("monthly_timeline", [])
+                if monthly_plan:
+                    for phase in monthly_plan:
+                        st.markdown(f"- **{phase.get('month', 'Phase')}**: {phase.get('milestones', '')}")
+                else:
+                    st.write(idea.get("difficulty_and_timeline", "Iterative agile rollout."))
+
+                # --- Pros & Cons ---
+                col_pro, col_con = st.columns(2)
+                with col_pro:
+                    st.success("**✅ Pros / Strategic Advantages:**\n" + "\n".join([f"- {p}" for p in idea.get("pros", [])]))
+                with col_con:
+                    st.error("**⚠️ Cons / Technical & Supply Risks:**\n" + "\n".join([f"- {c}" for c in idea.get("cons", [])]))
+
+                st.markdown("### 📊 Market Analysis & Competitor Landscape")
+                st.write(idea.get("market_analysis"))
+
+                # --- Elaboration / Deep Dive Section ---
+                st.divider()
+                st.markdown(f"#### 🔍 Deep Dive into *{idea.get('title')}*")
+                
+                elaboration_query = st.text_input(
+                    f"Ask a specific follow-up or request deeper specs for #{idx}:",
+                    placeholder="e.g., Provide the wiring diagram / pinouts for the sensors, or draft the firmware state machine...",
+                    key=f"input_elab_{idx}"
+                )
+                
+                if st.button(f"Elaborate on #{idx}", key=f"btn_elab_{idx}"):
+                    if not api_key:
+                        st.error("API key required.")
+                    elif not elaboration_query.strip():
+                        st.warning("Please specify what you want to elaborate on.")
+                    else:
+                        with st.spinner("Generating deep technical breakdown..."):
+                            try:
+                                sys_elab = (
+                                    "You are an expert technical advisor and systems engineer. "
+                                    f"You are elaborating on this project: {idea.get('title')}.\n"
+                                    f"Project Context: {idea.get('description')}\n"
+                                    f"Tech Stack: {', '.join(idea.get('tech_stack', []))}\n"
+                                    "Provide an exhaustive, highly practical, and technically deep response with schematics logic, code snippets, or supplier advice where relevant."
+                                )
+                                elaboration_result = call_llm(
+                                    sys_elab,
+                                    elaboration_query,
+                                    provider,
+                                    api_key,
+                                    expect_json=False
+                                )
+                                st.session_state.elaborations[f"{idx}_{elaboration_query}"] = elaboration_result
+                            except Exception as e:
+                                st.error(f"Error elaborating: {str(e)}")
+
+                for key, response_text in st.session_state.elaborations.items():
+                    if key.startswith(f"{idx}_"):
+                        question_asked = key.split(f"{idx}_", 1)[1]
+                        with st.chat_message("user"):
+                            st.write(question_asked)
+                        with st.chat_message("assistant"):
+                            st.markdown(response_text)
+
+# ================= TAB 2: SAVED IDEAS =================
+with tab_saved:
+    if not st.session_state.saved_ideas:
+        st.info("No ideas bookmarked yet. Click the '🔖 Bookmark' button on any generated concept to save it here.")
+    else:
+        st.subheader(f"📌 Your Bookmarked Projects ({len(st.session_state.saved_ideas)})")
+        for s_idx, s_idea in enumerate(st.session_state.saved_ideas, 1):
+            with st.expander(f"📁 {s_idea.get('title')} — Score: {s_idea.get('score')}/100", expanded=False):
+                col_del, _ = st.columns([1, 5])
+                with col_del:
+                    if st.button("❌ Remove from Bookmarks", key=f"del_saved_{s_idx}"):
+                        st.session_state.saved_ideas.pop(s_idx - 1)
+                        st.rerun()
+
+                st.markdown(f"**Description:** {s_idea.get('description')}")
+                st.markdown(f"**Total Budget:** {s_idea.get('total_estimated_cost')}")
+                st.markdown(f"**Tech Stack:** {', '.join(s_idea.get('tech_stack', []))}")
+                
+                # Render Hardware BOM table if present
+                bom = s_idea.get("hardware_bom", [])
+                if bom:
+                    st.markdown("**Hardware BOM:**")
+                    table = "| Item | Purpose | Cost |\n|---|---|---|\n"
+                    for b in bom:
+                        table += f"| {b.get('item')} | {b.get('purpose')} | {b.get('est_cost')} |\n"
+                    st.markdown(table)
+
+                st.markdown(f"**Market Analysis:** {s_idea.get('market_analysis')}")
