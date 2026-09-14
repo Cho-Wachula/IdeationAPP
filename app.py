@@ -3,16 +3,18 @@ import json
 
 st.set_page_config(page_title="AI Ideation Studio", page_icon="💡", layout="wide")
 
-# Initialize session state for generated ideas
+# Initialize session state for storage
 if "ideas" not in st.session_state:
     st.session_state.ideas = None
 if "elaborations" not in st.session_state:
     st.session_state.elaborations = {}
+if "saved_ideas" not in st.session_state:
+    st.session_state.saved_ideas = []
 
 st.title("💡 AI-Powered Ideation & Evaluation Studio")
-st.markdown("Generate scored project concepts with market validation, granular hardware/cloud budgets, month-by-month roadmaps, and deep-dive elaboration.")
+st.markdown("Generate scored project concepts with market validation, granular hardware/cloud budgets, month-by-month roadmaps, and save your favorites.")
 
-# --- Sidebar: Model & API Configuration ---
+# --- Sidebar: Model & API Configuration + Bookmarks Manager ---
 st.sidebar.header("⚙️ Model Configuration")
 provider = st.sidebar.selectbox(
     "Select AI Provider / Model",
@@ -25,6 +27,45 @@ provider = st.sidebar.selectbox(
 
 api_key = st.sidebar.text_input("Enter API Key for Selected Provider", type="password")
 st.sidebar.caption("Keys are stored only in your active browser session.")
+
+# --- Sidebar: Saved Projects Management ---
+st.sidebar.divider()
+st.sidebar.header(f"💾 Saved Projects ({len(st.session_state.saved_ideas)})")
+
+# Export saved ideas
+if st.session_state.saved_ideas:
+    saved_json_str = json.dumps(st.session_state.saved_ideas, indent=2)
+    st.sidebar.download_button(
+        label="📥 Export Saved Ideas (JSON)",
+        data=saved_json_str,
+        file_name="saved_project_ideas.json",
+        mime="application/json",
+        use_container_width=True
+    )
+
+# Import previously saved ideas
+uploaded_file = st.sidebar.file_uploader("Upload Saved Projects (.json)", type=["json"])
+if uploaded_file is not None:
+    try:
+        imported_ideas = json.load(uploaded_file)
+        if isinstance(imported_ideas, list):
+            # Avoid duplicates by title
+            current_titles = {i.get("title") for i in st.session_state.saved_ideas}
+            added = 0
+            for item in imported_ideas:
+                if item.get("title") not in current_titles:
+                    st.session_state.saved_ideas.append(item)
+                    added += 1
+            if added > 0:
+                st.sidebar.success(f"Imported {added} new project(s)!")
+    except Exception as e:
+        st.sidebar.error("Invalid JSON file.")
+
+# Clear saved projects
+if st.session_state.saved_ideas:
+    if st.sidebar.button("🗑️ Clear All Saved", use_container_width=True):
+        st.session_state.saved_ideas = []
+        st.rerun()
 
 # --- Helper: Unified API Dispatcher ---
 def call_llm(system_prompt, user_payload, provider, api_key, expect_json=True):
@@ -107,155 +148,64 @@ def generate_ideas(prompt, constraints, num_ideas, provider, api_key):
     res = call_llm(system_prompt, user_payload, provider, api_key, expect_json=True)
     return res.get("ideas", res) if isinstance(res, dict) else res
 
-# --- Main Ideation Form ---
-with st.form("ideation_form"):
-    user_prompt = st.text_area(
-        "What is your seed idea or target problem?",
-        placeholder="e.g., A smart precision irrigation system using embedded soil sensors and local edge ML to detect plant stress..."
-    )
+# --- Main Navigation Tabs ---
+tab_generate, tab_saved = st.tabs(["🚀 Ideation Engine", f"📁 Bookmarked Ideas ({len(st.session_state.saved_ideas)})"])
 
-    col1, col2 = st.columns(2)
-    with col1:
-        tech_options = st.multiselect(
-            "Target Technologies",
-            ["AI / Machine Learning", "LLMs / Generative AI", "Embedded Systems / IoT", "3D Printing & Rapid Prototyping", "Robotics", "Web / Mobile App", "Computer Vision", "AR / VR"],
-            default=["AI / Machine Learning", "Embedded Systems / IoT"]
-        )
-        budget = st.select_slider(
-            "Budget Constraint",
-            options=["< $100 (Hobbyist)", "$100 - $500", "$500 - $2,000", "$2,000 - $10,000", "$10,000+ (Commercial Demo)"],
-            value="$100 - $500"
+# ================= TAB 1: GENERATE =================
+with tab_generate:
+    with st.form("ideation_form"):
+        user_prompt = st.text_area(
+            "What is your seed idea or target problem?",
+            placeholder="e.g., A smart precision irrigation system using embedded soil sensors and local edge ML to detect plant stress..."
         )
 
-    with col2:
-        difficulty = st.select_slider(
-            "Target Difficulty",
-            options=["Beginner", "Intermediate", "Advanced", "Enterprise / Industrial Grade"],
-            value="Intermediate"
-        )
-        timeline = st.selectbox(
-            "Timeline Range",
-            ["Weekend Hackathon (< 48 hrs)", "1 - 2 Months", "3 - 4 Months", "6 Months", "12 Months"]
-        )
-        num_ideas = st.slider("Number of Ideas to Generate", min_value=1, max_value=3, value=2)
-
-    submit = st.form_submit_button("🚀 Generate & Rank Concepts", use_container_width=True)
-
-if submit:
-    if not api_key:
-        st.error("Please enter an API key in the sidebar.")
-    elif not user_prompt.strip():
-        st.warning("Please provide a seed idea or problem prompt.")
-    else:
-        with st.spinner("Analyzing hardware bills of materials, month-by-month roadmaps, and market viability..."):
-            constraints = {
-                "budget": budget,
-                "tech": tech_options,
-                "difficulty": difficulty,
-                "timeline": timeline
-            }
-            try:
-                ideas = generate_ideas(user_prompt, constraints, num_ideas, provider, api_key)
-                st.session_state.ideas = sorted(ideas, key=lambda x: x.get("score", 0), reverse=True)
-                st.session_state.elaborations = {}
-                st.rerun()
-            except Exception as e:
-                st.error(f"Error generating ideas: {str(e)}")
-
-# --- Display Results & Interactive Elaboration ---
-if st.session_state.ideas:
-    st.divider()
-    st.subheader(f"🏆 Top Ranked Concepts ({len(st.session_state.ideas)})")
-
-    for idx, idea in enumerate(st.session_state.ideas, 1):
-        score = int(idea.get("score", 75))
-        
-        with st.expander(f"#{idx} | {idea.get('title', 'Project Concept')} — Recommendation Score: {score}/100", expanded=True):
-            st.progress(score / 100)
-            st.caption(f"**Recommendation Analysis:** {idea.get('score_justification', 'Strong alignment with requirements.')}")
-
-            st.markdown("### 📌 Executive Summary")
-            st.write(idea.get("description"))
-
-            st.markdown("### ⚙️ System Architecture & Tech Stack")
-            st.write(idea.get("system_architecture", "Modular architecture integrating edge hardware and cloud software."))
-            tech_badges = " ".join([f"`{t}`" for t in idea.get("tech_stack", [])])
-            st.markdown(f"**Tech Stack:** {tech_badges}")
-
-            # --- Budget & BOM Breakdown ---
-            st.markdown("### 💰 Comprehensive Budget & Hardware BOM")
-            st.info(f"**Estimated Total Cost:** {idea.get('total_estimated_cost', 'N/A')}")
-            
-            hardware_items = idea.get("hardware_bom", [])
-            if hardware_items:
-                st.markdown("#### 🛠️ Potential Hardware & Material Requirements (BOM)")
-                bom_table = "| Item / Component | Purpose | Estimated Cost |\n|---|---|---|\n"
-                for item in hardware_items:
-                    bom_table += f"| {item.get('item', 'N/A')} | {item.get('purpose', 'N/A')} | {item.get('est_cost', 'N/A')} |\n"
-                st.markdown(bom_table)
-            
-            st.markdown(f"**Cloud, Tooling & Subscriptions:**\n\n{idea.get('software_cloud_budget', 'N/A')}")
-
-            # --- Timeline & Month-by-Month Progression ---
-            st.markdown("### 📅 Month-by-Month Execution Roadmap")
-            monthly_plan = idea.get("monthly_timeline", [])
-            if monthly_plan:
-                for phase in monthly_plan:
-                    st.markdown(f"- **{phase.get('month', 'Phase')}**: {phase.get('milestones', '')}")
-            else:
-                st.write(idea.get("difficulty_and_timeline", "Iterative agile rollout."))
-
-            # --- Pros & Cons ---
-            col_pro, col_con = st.columns(2)
-            with col_pro:
-                st.success("**✅ Pros / Strategic Advantages:**\n" + "\n".join([f"- {p}" for p in idea.get("pros", [])]))
-            with col_con:
-                st.error("**⚠️ Cons / Technical & Supply Risks:**\n" + "\n".join([f"- {c}" for c in idea.get("cons", [])]))
-
-            st.markdown("### 📊 Market Analysis & Competitor Landscape")
-            st.write(idea.get("market_analysis"))
-
-            # --- Elaboration / Deep Dive Section ---
-            st.divider()
-            st.markdown(f"#### 🔍 Deep Dive into *{idea.get('title')}*")
-            
-            elaboration_query = st.text_input(
-                f"Ask a specific follow-up or request deeper specs for #{idx}:",
-                placeholder="e.g., Provide the wiring diagram / pinouts for the sensors, or draft the firmware state machine...",
-                key=f"input_elab_{idx}"
+        col1, col2 = st.columns(2)
+        with col1:
+            tech_options = st.multiselect(
+                "Target Technologies",
+                ["AI / Machine Learning", "LLMs / Generative AI", "Embedded Systems / IoT", "3D Printing & Rapid Prototyping", "Robotics", "Web / Mobile App", "Computer Vision", "AR / VR"],
+                default=["AI / Machine Learning", "Embedded Systems / IoT"]
             )
-            
-            if st.button(f"Elaborate on #{idx}", key=f"btn_elab_{idx}"):
-                if not api_key:
-                    st.error("API key required.")
-                elif not elaboration_query.strip():
-                    st.warning("Please specify what you want to elaborate on.")
-                else:
-                    with st.spinner("Generating deep technical breakdown..."):
-                        try:
-                            sys_elab = (
-                                "You are an expert technical advisor and systems engineer. "
-                                f"You are elaborating on this project: {idea.get('title')}.\n"
-                                f"Project Context: {idea.get('description')}\n"
-                                f"Tech Stack: {', '.join(idea.get('tech_stack', []))}\n"
-                                "Provide an exhaustive, highly practical, and technically deep response with schematics logic, code snippets, or supplier advice where relevant."
-                            )
-                            elaboration_result = call_llm(
-                                sys_elab,
-                                elaboration_query,
-                                provider,
-                                api_key,
-                                expect_json=False
-                            )
-                            st.session_state.elaborations[f"{idx}_{elaboration_query}"] = elaboration_result
-                        except Exception as e:
-                            st.error(f"Error elaborating: {str(e)}")
+            budget = st.select_slider(
+                "Budget Constraint",
+                options=["< $100 (Hobbyist)", "$100 - $500", "$500 - $2,000", "$2,000 - $10,000", "$10,000+ (Commercial Demo)"],
+                value="$100 - $500"
+            )
 
-            # Display any saved elaborations for this specific idea
-            for key, response_text in st.session_state.elaborations.items():
-                if key.startswith(f"{idx}_"):
-                    question_asked = key.split(f"{idx}_", 1)[1]
-                    with st.chat_message("user"):
-                        st.write(question_asked)
-                    with st.chat_message("assistant"):
-                        st.markdown(response_text)
+        with col2:
+            difficulty = st.select_slider(
+                "Target Difficulty",
+                options=["Beginner", "Intermediate", "Advanced", "Enterprise / Industrial Grade"],
+                value="Intermediate"
+            )
+            timeline = st.selectbox(
+                "Timeline Range",
+                ["Weekend Hackathon (< 48 hrs)", "1 - 2 Months", "3 - 4 Months", "6 Months", "12 Months"]
+            )
+            num_ideas = st.slider("Number of Ideas to Generate", min_value=1, max_value=3, value=2)
+
+        submit = st.form_submit_button("🚀 Generate & Rank Concepts", use_container_width=True)
+
+    if submit:
+        if not api_key:
+            st.error("Please enter an API key in the sidebar.")
+        elif not user_prompt.strip():
+            st.warning("Please provide a seed idea or problem prompt.")
+        else:
+            with st.spinner("Analyzing hardware bills of materials, month-by-month roadmaps, and market viability..."):
+                constraints = {
+                    "budget": budget,
+                    "tech": tech_options,
+                    "difficulty": difficulty,
+                    "timeline": timeline
+                }
+                try:
+                    ideas = generate_ideas(user_prompt, constraints, num_ideas, provider, api_key)
+                    st.session_state.ideas = sorted(ideas, key=lambda x: x.get("score", 0), reverse=True)
+                    st.session_state.elaborations = {}
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Error generating ideas: {str(e)}")
+
+    # --- Display Generated Ideas ---
+    if st.session_state.ideas:
