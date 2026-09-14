@@ -10,7 +10,7 @@ if "elaborations" not in st.session_state:
     st.session_state.elaborations = {}
 
 st.title("💡 AI-Powered Ideation & Evaluation Studio")
-st.markdown("Generate scored project concepts with market validation, risk analysis, and deep-dive elaboration.")
+st.markdown("Generate scored project concepts with market validation, granular hardware/cloud budgets, month-by-month roadmaps, and deep-dive elaboration.")
 
 # --- Sidebar: Model & API Configuration ---
 st.sidebar.header("⚙️ Model Configuration")
@@ -74,8 +74,8 @@ def call_llm(system_prompt, user_payload, provider, api_key, expect_json=True):
 # --- Helper: Idea Generator ---
 def generate_ideas(prompt, constraints, num_ideas, provider, api_key):
     system_prompt = (
-        "You are an expert venture architect, product manager, and senior systems engineer. "
-        "Your task is to take a seed idea and user constraints, synthesize them, and return comprehensive project concepts. "
+        "You are an expert venture architect, hardware engineer, and senior technical program manager. "
+        "Your task is to take a seed idea and user constraints, synthesize them, and return deeply detailed project concepts. "
         f"You must generate exactly {num_ideas} unique idea(s). "
         "Score each idea on a recommendation scale of 0 to 100 based on feasibility, novelty, ROI, and alignment with constraints. "
         "Rank the output array so the highest-scoring idea comes first.\n\n"
@@ -84,10 +84,12 @@ def generate_ideas(prompt, constraints, num_ideas, provider, api_key):
         "- score (integer from 0 to 100)\n"
         "- score_justification (string explaining why it received this score)\n"
         "- description (string, 3-4 comprehensive sentences)\n"
-        "- system_architecture (string describing components, protocols, and data flow)\n"
+        "- system_architecture (string describing hardware/software components, protocols, and data pipeline)\n"
         "- tech_stack (list of strings)\n"
-        "- estimated_budget (string, line-item breakdown of prototype vs scaling costs)\n"
-        "- difficulty_and_timeline (string, milestones breakdown)\n"
+        "- hardware_bom (list of objects with keys 'item', 'purpose', and 'est_cost') listing all physical components, sensors, microcontrollers, 3D printing filament, tooling, etc.\n"
+        "- software_cloud_budget (string detailing cloud compute, API token usage, third-party software, and subscriptions)\n"
+        "- total_estimated_cost (string summarizing the total budget range from prototype to MVP)\n"
+        "- monthly_timeline (list of objects with keys 'month' and 'milestones', detailing a realistic month-by-month progression covering design, CAD/BOM, embedded firmware, API integration, bench testing, and field pilot/MVP)\n"
         "- pros (list of strings, minimum 3)\n"
         "- cons (list of strings, minimum 3)\n"
         "- market_analysis (string evaluating target audience, direct/indirect competitors, and unique value proposition)"
@@ -109,7 +111,7 @@ def generate_ideas(prompt, constraints, num_ideas, provider, api_key):
 with st.form("ideation_form"):
     user_prompt = st.text_area(
         "What is your seed idea or target problem?",
-        placeholder="e.g., A low-cost IoT monitor for beehive health to detect colony collapse early..."
+        placeholder="e.g., A smart precision irrigation system using embedded soil sensors and local edge ML to detect plant stress..."
     )
 
     col1, col2 = st.columns(2)
@@ -133,9 +135,9 @@ with st.form("ideation_form"):
         )
         timeline = st.selectbox(
             "Timeline Range",
-            ["Weekend Hackathon (< 48 hrs)", "1 - 2 Weeks", "1 Month", "3 - 6 Months", "6+ Months"]
+            ["Weekend Hackathon (< 48 hrs)", "1 - 2 Months", "3 - 4 Months", "6 Months", "12 Months"]
         )
-        num_ideas = st.slider("Number of Ideas to Generate", min_value=1, max_value=3, value=3)
+        num_ideas = st.slider("Number of Ideas to Generate", min_value=1, max_value=3, value=2)
 
     submit = st.form_submit_button("🚀 Generate & Rank Concepts", use_container_width=True)
 
@@ -145,7 +147,7 @@ if submit:
     elif not user_prompt.strip():
         st.warning("Please provide a seed idea or problem prompt.")
     else:
-        with st.spinner("Analyzing market, pricing components, and evaluating feasibility..."):
+        with st.spinner("Analyzing hardware bills of materials, month-by-month roadmaps, and market viability..."):
             constraints = {
                 "budget": budget,
                 "tech": tech_options,
@@ -170,29 +172,47 @@ if st.session_state.ideas:
         
         with st.expander(f"#{idx} | {idea.get('title', 'Project Concept')} — Recommendation Score: {score}/100", expanded=True):
             st.progress(score / 100)
-            st.caption(f"**Recommendation Analysis:** {idea.get('score_justification', 'Strong alignment with goals.')}")
+            st.caption(f"**Recommendation Analysis:** {idea.get('score_justification', 'Strong alignment with requirements.')}")
 
             st.markdown("### 📌 Executive Summary")
             st.write(idea.get("description"))
 
             st.markdown("### ⚙️ System Architecture & Tech Stack")
-            st.write(idea.get("system_architecture", "Custom architecture modular pipeline."))
+            st.write(idea.get("system_architecture", "Modular architecture integrating edge hardware and cloud software."))
             tech_badges = " ".join([f"`{t}`" for t in idea.get("tech_stack", [])])
             st.markdown(f"**Tech Stack:** {tech_badges}")
 
-            c1, c2 = st.columns(2)
-            with c1:
-                st.info(f"**💰 Budget Plan:**\n\n{idea.get('estimated_budget')}")
-            with c2:
-                st.warning(f"**⏱️ Timeline & Effort:**\n\n{idea.get('difficulty_and_timeline')}")
+            # --- Budget & BOM Breakdown ---
+            st.markdown("### 💰 Comprehensive Budget & Hardware BOM")
+            st.info(f"**Estimated Total Cost:** {idea.get('total_estimated_cost', 'N/A')}")
+            
+            hardware_items = idea.get("hardware_bom", [])
+            if hardware_items:
+                st.markdown("#### 🛠️ Potential Hardware & Material Requirements (BOM)")
+                bom_table = "| Item / Component | Purpose | Estimated Cost |\n|---|---|---|\n"
+                for item in hardware_items:
+                    bom_table += f"| {item.get('item', 'N/A')} | {item.get('purpose', 'N/A')} | {item.get('est_cost', 'N/A')} |\n"
+                st.markdown(bom_table)
+            
+            st.markdown(f"**Cloud, Tooling & Subscriptions:**\n\n{idea.get('software_cloud_budget', 'N/A')}")
 
+            # --- Timeline & Month-by-Month Progression ---
+            st.markdown("### 📅 Month-by-Month Execution Roadmap")
+            monthly_plan = idea.get("monthly_timeline", [])
+            if monthly_plan:
+                for phase in monthly_plan:
+                    st.markdown(f"- **{phase.get('month', 'Phase')}**: {phase.get('milestones', '')}")
+            else:
+                st.write(idea.get("difficulty_and_timeline", "Iterative agile rollout."))
+
+            # --- Pros & Cons ---
             col_pro, col_con = st.columns(2)
             with col_pro:
-                st.success("**✅ Pros / Advantages:**\n" + "\n".join([f"- {p}" for p in idea.get("pros", [])]))
+                st.success("**✅ Pros / Strategic Advantages:**\n" + "\n".join([f"- {p}" for p in idea.get("pros", [])]))
             with col_con:
-                st.error("**⚠️ Cons / Challenges & Risks:**\n" + "\n".join([f"- {c}" for c in idea.get("cons", [])]))
+                st.error("**⚠️ Cons / Technical & Supply Risks:**\n" + "\n".join([f"- {c}" for c in idea.get("cons", [])]))
 
-            st.markdown("### 📊 Market Analysis & Competitors")
+            st.markdown("### 📊 Market Analysis & Competitor Landscape")
             st.write(idea.get("market_analysis"))
 
             # --- Elaboration / Deep Dive Section ---
@@ -200,8 +220,8 @@ if st.session_state.ideas:
             st.markdown(f"#### 🔍 Deep Dive into *{idea.get('title')}*")
             
             elaboration_query = st.text_input(
-                f"Ask a specific question or request deeper specs for #{idx}:",
-                placeholder="e.g., Provide a step-by-step Bill of Materials, or write the MVP backend architecture...",
+                f"Ask a specific follow-up or request deeper specs for #{idx}:",
+                placeholder="e.g., Provide the wiring diagram / pinouts for the sensors, or draft the firmware state machine...",
                 key=f"input_elab_{idx}"
             )
             
@@ -211,14 +231,14 @@ if st.session_state.ideas:
                 elif not elaboration_query.strip():
                     st.warning("Please specify what you want to elaborate on.")
                 else:
-                    with st.spinner("Generating detailed breakdown..."):
+                    with st.spinner("Generating deep technical breakdown..."):
                         try:
                             sys_elab = (
-                                "You are an expert technical advisor and product strategist. "
+                                "You are an expert technical advisor and systems engineer. "
                                 f"You are elaborating on this project: {idea.get('title')}.\n"
                                 f"Project Context: {idea.get('description')}\n"
                                 f"Tech Stack: {', '.join(idea.get('tech_stack', []))}\n"
-                                "Provide an exhaustive, highly practical, and technically deep response to the user's inquiry."
+                                "Provide an exhaustive, highly practical, and technically deep response with schematics logic, code snippets, or supplier advice where relevant."
                             )
                             elaboration_result = call_llm(
                                 sys_elab,
