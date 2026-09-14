@@ -31,7 +31,13 @@ def call_llm(system_prompt, user_payload, provider, api_key, expect_json=True):
     if "OpenAI" in provider:
         from openai import OpenAI
         client = OpenAI(api_key=api_key)
-        kwargs = {"model": "gpt-4o", "messages": [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_payload}]}
+        kwargs = {
+            "model": "gpt-4o",
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_payload}
+            ]
+        }
         if expect_json:
             kwargs["response_format"] = {"type": "json_object"}
         response = client.chat.completions.create(**kwargs)
@@ -221,4 +227,15 @@ if st.session_state.ideas:
                                 api_key,
                                 expect_json=False
                             )
-                            st.session_state.elabor
+                            st.session_state.elaborations[f"{idx}_{elaboration_query}"] = elaboration_result
+                        except Exception as e:
+                            st.error(f"Error elaborating: {str(e)}")
+
+            # Display any saved elaborations for this specific idea
+            for key, response_text in st.session_state.elaborations.items():
+                if key.startswith(f"{idx}_"):
+                    question_asked = key.split(f"{idx}_", 1)[1]
+                    with st.chat_message("user"):
+                        st.write(question_asked)
+                    with st.chat_message("assistant"):
+                        st.markdown(response_text)
