@@ -20,10 +20,10 @@ def save_persisted_ideas(ideas_list):
     except Exception as e:
         st.error(f"Failed to persist bookmarks: {e}")
 
-# Page Setup
+# Page Configuration
 st.set_page_config(page_title="AI Ideation Studio", page_icon="💡", layout="wide")
 
-# Initialize session state
+# Initialize Session State
 if "ideas" not in st.session_state:
     st.session_state.ideas = None
 if "elaborations" not in st.session_state:
@@ -39,9 +39,12 @@ st.sidebar.header("⚙️ Model Configuration")
 provider = st.sidebar.selectbox(
     "Select AI Provider / Model",
     [
-        "OpenAI (gpt-4o)",
-        "Anthropic (claude-3-5-sonnet-20240620)",
-        "Google (gemini-1.5-pro)"
+        "OpenAI: GPT-4o (Flagship Multimodal)",
+        "OpenAI: o3-mini (High-Reasoning & Logic)",
+        "Anthropic: Claude 3.7 Sonnet (Latest Hybrid Reasoning)",
+        "Anthropic: Claude 3.5 Sonnet (Standard)",
+        "Google: Gemini 2.5 Pro (Deep Reasoning & Multimodal)",
+        "Google: Gemini 2.0 Flash (Fast & Real-time)"
     ]
 )
 
@@ -88,33 +91,51 @@ if st.session_state.saved_ideas:
         save_persisted_ideas([])
         st.rerun()
 
-# --- Helper: Unified API Dispatcher ---
+# --- Helper: Unified API Dispatcher with Latest Models ---
 def call_llm(system_prompt, user_payload, provider, api_key, expect_json=True):
+    # 1. OPENAI MODELS
     if "OpenAI" in provider:
         from openai import OpenAI
         client = OpenAI(api_key=api_key)
-        kwargs = {
-            "model": "gpt-4o",
-            "messages": [
+        
+        if "o3-mini" in provider:
+            model_id = "o3-mini"
+            messages = [
+                {"role": "developer", "content": system_prompt},
+                {"role": "user", "content": user_payload}
+            ]
+            response = client.chat.completions.create(
+                model=model_id,
+                messages=messages,
+                response_format={"type": "json_object"} if expect_json else None
+            )
+        else:
+            model_id = "gpt-4o"
+            messages = [
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_payload}
             ]
-        }
-        if expect_json:
-            kwargs["response_format"] = {"type": "json_object"}
-        response = client.chat.completions.create(**kwargs)
+            response = client.chat.completions.create(
+                model=model_id,
+                messages=messages,
+                response_format={"type": "json_object"} if expect_json else None
+            )
         content = response.choices[0].message.content
         return json.loads(content) if expect_json else content
 
+    # 2. ANTHROPIC MODELS
     elif "Anthropic" in provider:
         import anthropic
         client = anthropic.Anthropic(api_key=api_key)
+        
+        model_id = "claude-3-7-sonnet-20250219" if "3.7" in provider else "claude-3-5-sonnet-20241022"
         sys_msg = system_prompt
         if expect_json:
-            sys_msg += "\nEnsure output is raw valid JSON starting with { or [ and ending with } or ]."
+            sys_msg += "\nEnsure output is strictly valid JSON starting with { or [ and ending with } or ]. No markdown formatting or code blocks."
+
         response = client.messages.create(
-            model="claude-3-5-sonnet-20240620",
-            max_tokens=4000,
+            model=model_id,
+            max_tokens=4096,
             system=sys_msg,
             messages=[{"role": "user", "content": user_payload}]
         )
@@ -122,14 +143,23 @@ def call_llm(system_prompt, user_payload, provider, api_key, expect_json=True):
         if expect_json:
             if content.startswith("```json"):
                 content = content[7:-3].strip()
+            elif content.startswith("```"):
+                content = content[3:-3].strip()
             return json.loads(content)
         return content
 
+    # 3. GOOGLE GEMINI MODELS
     elif "Google" in provider:
         import google.generativeai as genai
         genai.configure(api_key=api_key)
+        
+        if "2.5 Pro" in provider:
+            model_id = "gemini-2.5-pro"
+        else:
+            model_id = "gemini-2.0-flash"
+
         config = {"response_mime_type": "application/json"} if expect_json else {}
-        model = genai.GenerativeModel("gemini-1.5-pro", generation_config=config)
+        model = genai.GenerativeModel(model_id, generation_config=config)
         response = model.generate_content(f"{system_prompt}\n\n{user_payload}")
         return json.loads(response.text) if expect_json else response.text
 
@@ -148,7 +178,7 @@ def generate_ideas(prompt, constraints, num_ideas, provider, api_key):
         "- description (string, 3-4 comprehensive sentences)\n"
         "- system_architecture (string describing hardware/software components, protocols, and data pipeline)\n"
         "- tech_stack (list of strings)\n"
-        "- hardware_bom (list of objects with keys 'item', 'purpose', and 'est_cost') listing all physical components, sensors, microcontrollers, 3D printing filament, tooling, etc.\n"
+        "- hardware_bom (list of objects with keys 'item', 'purpose', and 'est_cost') listing physical components, microcontrollers, sensors, 3D printing filament, tooling, etc.\n"
         "- software_cloud_budget (string detailing cloud compute, API token usage, third-party software, and subscriptions)\n"
         "- total_estimated_cost (string summarizing the total budget range from prototype to MVP in USD)\n"
         "- monthly_timeline (list of objects with keys 'month' and 'milestones', detailing a realistic month-by-month progression covering design, CAD/BOM, embedded firmware, API integration, bench testing, and field pilot/MVP)\n"
